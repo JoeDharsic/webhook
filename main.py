@@ -1,20 +1,7 @@
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import Literal
+from fastapi import FastAPI, Request, HTTPException
 
 app = FastAPI()
-
-# Temporary storage for practice only.
-processed_events = set()
-orders = {}
-
-
-class OrderEvent(BaseModel):
-    event_id: str
-    event: Literal["order.created"]
-    order_id: str
-    amount: float
 
 
 @app.get("/")
@@ -23,25 +10,38 @@ def home():
 
 
 @app.post("/webhook")
-def receive_webhook(payload: OrderEvent):
-    # Check whether we have processed this event before.
-    if payload.event_id in processed_events:
+async def receive_webhook(request: Request):
+    # GitHub identifies the event using this header.
+    event_type = request.headers.get("X-GitHub-Event", "unknown")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid JSON payload",
+        )
+
+    if event_type == "push":
+        repository = payload.get("repository", {})
+        commits = payload.get("commits", [])
+
+        print(
+            f"Push received for {repository.get('full_name')}"
+        )
+        print(f"Number of commits: {len(commits)}")
+
         return {
-            "status": "duplicate",
-            "message": "Event already processed",
+            "status": "success",
+            "event": "push",
+            "repository": repository.get("full_name"),
+            "commit_count": len(commits),
         }
 
-    # Simulate creating an order.
-    orders[payload.order_id] = {
-        "amount": payload.amount,
-    }
-
-    processed_events.add(payload.event_id)
-
-    print("New order processed:", payload.order_id)
+    if event_type == "ping":
+        return {"status": "success", "event": "ping"}
 
     return {
-        "status": "success",
-        "message": "Order processed",
-        "order_id": payload.order_id,
+        "status": "ignored",
+        "event": event_type,
     }
